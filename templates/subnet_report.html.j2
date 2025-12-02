@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; }
+    th { background: #f0f0f0; font-weight: bold; }
+    .success { color: green; font-weight: bold; }
+    .failed { color: red; font-weight: bold; }
+    tr.failed-row { background-color: #ffe6e6; }
+    .msg-cell { max-width: 300px; white-space: normal; word-wrap: break-word; }
+    .footer-note { margin-top: 20px; font-size: 12px; color: #777; }
+  </style>
+</head>
+<body>
+<h2>GCP Subnet Creation Report</h2>
+<table>
+<thead>
+<tr>
+<th>Project</th><th>Region Code</th><th>Region</th><th>VPC</th><th>Subnet Name</th><th>CIDR</th><th>Status</th><th>Message</th>
+</tr>
+</thead>
+<tbody>
+{% for item in subnet_report %}
+<tr class="{% if item.status == 'FAILED' %}failed-row{% endif %}">
+<td>{{ item.project }}</td>
+<td>{{ item.region_code }}</td>
+<td>{{ item.region }}</td>
+<td>{{ item.vpc }}</td>
+<td>{{ item.subnet_name }}</td>
+<td>{{ item.cidr }}</td>
+<td class="{{ 'success' if item.status == 'SUCCESS' else 'failed' }}">{{ item.status }}</td>
+<td class="msg-cell">{{ item.message }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="footer-note"><b>Network Automation Team</b><br><small>Automated Email — Do Not Reply</small></p>
+</body>
+</html>

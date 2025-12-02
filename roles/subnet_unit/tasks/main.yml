@@ -1,0 +1,105 @@
+---
+# Role: subnet_unit
+
+- name: Validate subnet input
+  assert:
+    that:
+      - req.RegionCode is defined
+      - req.Env is defined
+      - req.SubnetSize is defined
+      - req.Solution is defined
+      - req.VPC is defined
+      - req.Comments is defined
+    fail_msg: "Missing required attributes in subnet request"
+
+- name: Select matching block from Env.csv
+  set_fact:
+    selected_block: "{{ item.Block }}"
+  loop: "{{ env_data }}"
+  loop_control:
+    loop_var: item
+  when:
+    - item.RegionCode == req.RegionCode
+    - item.Env == req.Env
+
+- name: Fail if no Block found
+  fail:
+    msg: "No matching Block found in Env.csv for Region={{ req.RegionCode }}, Env={{ req.Env }}"
+  when:
+    - selected_block is not defined
+
+- name: Run subnet calculator
+  command:
+    argv:
+      - python3
+      - "{{ calc_script }}"
+      - "{{ selected_block }}"
+      - "{{ req.SubnetSize }}"
+      - "{{ subnet_csv }}"
+      - "{{ gcp_project }}"
+      - "{{ region_map[req.RegionCode] }}"
+  register: calc
+  changed_when: false
+  failed_when: calc.rc != 0
+
+- name: Stop if calculator returns no available subnet
+  fail:
+    msg: "No available CIDR in block {{ selected_block }}"
+  when: calc.stdout == "NO_AVAILABLE_SUBNET"
+
+- set_fact:
+    new_cidr: "{{ calc.stdout }}"
+
+- name: Count existing subnets
+  set_fact:
+    existing_count: >-
+      {{
+        subnet_data |
+        selectattr('RegionCode','equalto', req.RegionCode) |
+        selectattr('Env','equalto', req.Env) |
+        list |
+        length
+      }}
+
+- name: Determine next numbering
+  set_fact:
+    next_number: "{{ '%03d' % ((existing_count | int) + 1) }}"
+
+- name: Build subnet name
+  set_fact:
+    SubnetName: "{{ req.RegionCode | lower }}-{{ req.Env | lower }}-{{ req.Solution | lower }}-{{ next_number }}-snt"
+
+- name: Append new subnet entry to Subnet.csv
+  lineinfile:
+    path: "{{ subnet_csv }}"
+    insertafter: EOF
+    line: "{{ req.RegionCode }},{{ req.Env }},{{ new_cidr }},{{ SubnetName }},NetworkTeam,Created,{{ req.Comments }}"
+
+- name: Create subnet in GCP
+  google.cloud.gcp_compute_subnetwork:
+    name: "{{ SubnetName }}"
+    ip_cidr_range: "{{ new_cidr }}"
+    region: "{{ region_map[req.RegionCode] }}"
+    network:
+      selfLink: "https://www.googleapis.com/compute/v1/projects/{{ gcp_project }}/global/networks/{{ req.VPC }}"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_sa_file }}"
+  register: gcp_result
+  ignore_errors: true
+
+- name: Update subnet_report list
+  set_fact:
+    subnet_report: "{{ subnet_report + [ {
+        'region_code': req.RegionCode,
+        'region': region_map[req.RegionCode],
+        'project': gcp_project,
+        'vpc': req.VPC,
+        'subnet_name': SubnetName,
+        'cidr': new_cidr,
+        'comments': req.Comments,
+        'status': ('FAILED' if gcp_result.failed else 'SUCCESS'),
+        'message': gcp_result.msg | default('Created successfully')
+    } ] }}"
+  delegate_to: localhost
+  run_once: true

@@ -1,0 +1,66 @@
+---
+# Role: gcp_subnet_multi
+
+- name: Validate CSV and SA files
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ env_csv }}"
+    - "{{ subnet_csv }}"
+    - "{{ gcp_sa_file }}"
+  register: file_check
+
+- name: Fail if required files missing
+  fail:
+    msg: "Missing required file: {{ item.stat.path }}"
+  when: not item.stat.exists
+  loop: "{{ file_check.results }}"
+
+- name: Load Env.csv
+  read_csv:
+    path: "{{ env_csv }}"
+  register: env_raw
+
+- set_fact:
+    env_data: "{{ env_raw.list }}"
+
+- name: Load Subnet.csv
+  read_csv:
+    path: "{{ subnet_csv }}"
+  register: subnet_raw
+
+- set_fact:
+    subnet_data: "{{ subnet_raw.list }}"
+
+- name: Initialize subnet_report list
+  set_fact:
+    subnet_report: []
+
+- name: Process each subnet request
+  include_role:
+    name: subnet_unit
+  loop: "{{ subnets }}"
+  loop_control:
+    loop_var: req
+    index_var: batch_index
+
+- name: Render HTML subnet creation report
+  template:
+    src: "subnet_report.html.j2"
+    dest: "/tmp/subnet_report.html"
+  delegate_to: localhost
+  run_once: true
+
+- name: Send HTML email report
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: "{{ email_user }}"
+    password: "{{ email_password }}"
+    to: "{{ email_to }}"
+    subject: "GCP Multi-Subnet Creation Report"
+    subtype: html
+    body: "{{ lookup('file','/tmp/subnet_report.html') }}"
+  delegate_to: localhost
+  run_once: true
+  no_log: true
