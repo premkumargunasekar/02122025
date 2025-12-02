@@ -1,6 +1,6 @@
 ---
 - name: GCP Multi Subnet Provisioning Workflow
-  hosts: localhost
+  hosts: 192.168.116.129
   gather_facts: no
 
   # Load all variables
